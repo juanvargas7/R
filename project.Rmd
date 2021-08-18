@@ -1,0 +1,301 @@
+---
+title: "Final_Project_JV"
+author: "Juan Vargas"
+date: "5/10/2021"
+output: html_document
+---
+
+<center>
+
+Catecholamine and Coronary Heart Disease
+
+Objective
+
+Assess if Catecholamine level is a good indicator of Coronary Heart Disease with the adjustments of other covariates.
+
+
+
+Results:
+The odds ratio of Coronary heart disease for smoker compared to non smokers is 2.26 having the other covariates at a fixed value. The odds ratio of Coronary heart disease for smoker compared to non smokers is 2.26, after adjustment of other covariates at a fixed value. The odds ratio of CHD for high concentrations of catecholamine is 5 times higher than those with low catecholamine levels having the other covariates at a fixed value. The odds ratio for CHD increases by .1% for every increase in concentration of cholesterol ion the blood by having the other covariates at a fixed value. The odds ratio for CHD increases by 0.97% for every increase in age having the other covariates at a fixed value. 
+
+Conclusion:
+There has to be a bigger amount of subjects that are CHD positive since the best model possible with the data give has highly non-normal data.
+</center>
+
+Part1.
+
+```{r,echo = FALSE, results='hide',message=FALSE,warning=FALSE}
+library(tidyverse)
+library(lbreg) 
+library(ggthemes) 
+library(epiR)
+library(epitools)
+library(Hmisc)
+library(lmtest)
+library(PerformanceAnalytics)
+library(ROCit)
+library(pROC)
+
+data('Evans')
+data = as_tibble(Evans)
+
+data$CDH = factor(data$CDH,levels = c(1:0),labels = c('Postive CHD','Negative CHD'))
+data$SMK = factor(data$SMK, levels = c(1:0),labels = c('Smoker', 'Non Smoker'))
+data$ECG = factor(data$ECG,levels = c(1:0), labels = c('AbNormal','normal'))
+data$HPT = factor(data$HPT, levels = c(1:0),labels = c('High Blood Preassure','Normal Preassure'))
+data$CAT = factor(data$CAT,levels = c(1:0),labels = c('High','Normal'))
+data$ID = rownames(data)
+str(data)
+
+sensitivity <- function(z,a=0,denom,sens ){ 
+  #Will return the sensitivity of the matrix
+  #if a = 1, will return the number of people of true positive 
+  
+  if (a == 1){
+    return(print(paste0('TP = ',sens*denom)))
+  }else{ return(z[1,1]/(z[1,1]+z[2,1]))
+}
+}
+
+specificity <- function(z,a=0,num,spec){  #Returns sensitivity arg is matrix
+  if (a == 1){
+    return(print(paste0('TN = ',spec*num))) }else{
+    return(z[2,2]/(z[1,2]+z[2,2]))
+      }
+}
+
+dec <- function(x, k) trimws(format(round(x, k), nsmall=k))
+
+```
+
+```{r, echo=FALSE,message=FALSE}
+p = data %>%
+  group_by(CDH) %>%
+    summarise(N = n(),age_mean = mean(AGE),age_sd = sd(AGE),
+              DPB_mean = mean(DBP),DBP_sd = sd(DBP),
+              SBP_mean = mean(SBP),SBP_sd = sd(SBP),
+              Chl_mean = mean(CHL),CHL_sd = sd(CHL)) %>%
+              ungroup()
+colnames(p) = c('Outcome','N','Age Mean','Age Sd','DBP Mean','DBP SD','SBP Mean','SBP SD','CHL Mean','CHL Sd')
+p %>%
+  knitr::kable()
+```
+
+<center>
+```{r, echo=FALSE,message=FALSE}
+#plots
+# Age
+data %>%
+  ggplot(aes(x = CDH, AGE, group = CDH, fill = CDH))+
+    geom_boxplot() + ggthemes::theme_economist_white()+
+    theme(legend.position = 'none')+
+    labs(title = 'Age quantiles by CHD positive, negative groups',subtitle = '')
+
+ #Cholesterol
+
+data %>%
+  ggplot(aes(x = CHL,fill = CDH))+
+    geom_histogram(color = 'black')+
+    facet_wrap(~CDH)+ theme(legend.position = 'none')+
+    geom_vline(xintercept = mean(data$CHL), linetype = 'dashed')+
+    labs(x = 'Cholesterol level mg/dL',caption = 'The dashed line is the average of the whole data set',title = 'Cholesterol level by Outcome',subtitle = '')+
+    ggthemes::theme_economist() + theme(legend.position = 'none')
+
+data %>%
+  ggplot(aes(y = CHL, x = CDH, fill = CDH))+
+    geom_boxplot()+ labs(title = 'Cholesterol concentration  vs. Coronary Heart Disease status') + 
+    ggthemes::theme_economist()+theme(legend.position = 'none')
+
+
+data %>%
+  ggplot(aes(y = CHL, x=CAT, fill = CAT))+
+    geom_boxplot() +
+      labs(title = 'Cholesterol concentration by Catecholamine level') + ggthemes::theme_economist()+theme(legend.position = 'none')
+
+data %>%
+  ggplot(aes(x = AGE , y = CHL))+
+    geom_point(color = 'black') +
+    geom_smooth(method = 'lm', color = 'red', se= F)+
+    ggthemes::theme_economist_white()+
+    labs(title = 'Cholesterol vs. Age', x = 'Age', y ='Cholesterol mg/dL') +
+    facet_wrap(~CDH)
+
+data %>%
+  ggplot(aes(x = CAT, y = AGE, fill = CAT))+
+    geom_boxplot()+ ggthemes::theme_economist() + labs(title = 'Age by Catecholamine level')+ theme(legend.position = 'none')
+
+# HPT
+
+data %>%
+  ggplot(aes(CDH, fill = HPT))+
+    geom_bar(position =  'fill')+
+    ggthemes::theme_economist()+
+    labs(title = 'Hypertension status proportion by Coronary Heart Disease status',y ='', x = 'CHD Status')+ scale_y_continuous(labels = scales::percent)
+
+
+data %>% ggplot(aes(CAT, fill = HPT))+
+    geom_bar(position = 'fill')+
+    ggthemes::theme_economist() +
+    labs(title = 'Hypertension status proportions by CAT level', y = '')+ scale_y_continuous(labels = scales::percent)
+
+#Smk 
+
+data %>%
+  ggplot(aes(x = SMK, y = AGE, fill = CDH))+
+    geom_boxplot() + ggthemes::theme_economist() + labs(x = '', title='Age vs. Coronary Heart disease status by Smoking group')
+
+  #age and smk group
+
+data %>%
+  ggplot(aes(x = SMK, y= AGE, fill = SMK))+
+    geom_boxplot() + labs(x = 'Smoking status',y= 'Age',title = 'Age vs Smoking status') + ggthemes::theme_economist()+ theme(legend.position = 'none')
+
+```
+
+
+```{r,echo = FALSE}
+chart.Correlation(Evans)
+```
+</center>
+
+The Cholesterol level in the Positive CHD, we can see a non normal distribution due to low sample.
+
+Through the correlation matrix, we can already see that the cells that have a star mean that they are significantly different. Due to DBP and SBP being the most correlated one, we could eliminate that variable for the model since the data can be collected by the HPT variable ( being also correlated with SBP and DBP). Studies have shown that theres a correlation between Catecholamine levels and age, therefor our model has to have cat * age interaction term.
+
+Theres also a correlation between catecholamine level and hypertension status which could be a potential effect modifier.
+
+In many of the box plots and histograms theres a lot of outliers, which could be a big problem for building a good model. 
+
+<center>
+Best model chosen: $Y = \beta_0 + Smoker\beta_1 + Catecholamine\beta_2 + Hypertension\beta_3 + Cholesterol\beta_4 + Age\beta_5 + Age*Catecholamine\beta_6$
+</center>
+
+```{r, message=FALSE,echo = F}
+model_2 = glm(CDH~SMK+CAT+CHL+AGE+HPT+AGE*CAT,data = data, family = 'binomial')
+y = tibble(Coefficient= c('Intercept','Smoker','Catecholamine','Cholesterol','Age','Hypertension','Age x CAT'),
+           Estiamte = coefficients(model_2),
+           Std.Error = summary(model_2)$coefficients[,2],
+           z.value = summary(model_2)$coefficients[,3],
+           P.val = summary(model_2)$coefficients[,4],
+           Lower.CI =confint(model_2)[,1],
+           Upper.CI =confint(model_2)[,2])
+y %>% knitr::kable(caption = 'Coeffient table for the model chosen')
+```
+<center>
+```{r, echo = F}
+plot(density(resid(model_2,type='pearson')))
+lines(density(resid(model_2,type = 'pearson')), col = 'red')
+
+plot(density(resid(model_2,type='deviance')))
+lines(density(resid(model_2,type = 'deviance')), col = 'red')
+```
+</center>
+
+Right off through the deviance residuals, we can see theres a lot non normality 
+
+
+Model chosen is a logistic regression
+
+This model was chosen because of the simplicity and significance of the betas in the full model with all the covariates. After analysing the full model, the only coefficients significant were age, catecholamine level, smoking status, and cholesterol level so there for those coeffiecients were the ones chosen for the model. SBP and DBP covariates were removed due to correlation and redundancy, if the patient has Hypertension then SBP and DBP are likely to be high, we can see this correlation in the correlation map in the part above.
+
+Model interpretation:
+
+    * Intercept: The overall odds having Coronary heart diesease in the whole group is 54%
+    
+    * Smoker: The odds ratio of Coronary heart disease for smoker compared to non smokers is 2.26, after adjustedment of other covariates at a fixed value.
+    
+    * Catecholamine: The odds ratio of CHD for high concentrations of catecholamine is 5 times higher than those with low catecholamine levels having the other covariates at a fixed value.
+    
+    * Cholesterol: The odds ratio for CHD increases by .1% for every increase in concentration of cholesterol ion the blood by having the other covariates at a fixed value.
+    
+    * Age: The odds ratio for CHD increases by 0.97% for every increase in age having the other covariates at a fixed value.
+    
+    * Hypertension: The odds ratio for CHD is 1.61 times higher for those with hypertension compared to those without hypertension having other covariates at a fixed value.
+
+
+
+Full model = $Y = \beta_0 + -0.07(Age) + 0.403(ECG) + 0.5327(HPT) + 0.75(CAT) + 0.867(SMK) + -0.0086(CHL) + -.012(DBP) + 0.0105(SBP)$
+
+```{r, echo = FALSE}
+model_1 = glm(CDH ~ AGE + ECG+HPT+CAT+SMK+CHL+DBP+SBP, data = data, family = 'binomial')
+coefficients(summary(model_1)) %>%
+    knitr::kable(caption = 'Coefficient table for full model with all covariates')
+```
+
+Comparing Model chosen and full model.
+
+To check if removing the covariates doesent change the output an LRT was performed:
+
+```{r,echo = F}
+a = lrtest(model_1,model_2)
+lrtest(model_1,model_2) %>%
+  knitr::kable()
+```
+
+With a p-value of 0.207 we fail to reject the null hypothesis, therefore there's no significant difference between both models, being able to use the reduced model.
+
+For the interaction terms age and catecholamine were chosen due to evidence of increased basal NE and by the correlation coefficient of 0.4 shown in the correlation matrix shown. 'Increased basal norepinephrine (NE) concentrations have been demonstrated repeatedly in human aging, but these studies have included almost exclusively "early aging" subjects younger than age 75.' (Pascualy,1999). Although adding the interaction term does not significantly change the output, it will be added.
+
+
+Model Performance
+
+
+```{r,echo = F}
+sub = with(data,tibble(SMK = SMK, CAT = CAT, AGE = AGE, HPT = HPT, CHL =CHL))
+
+sub$pred = predict(model_2,sub,type = 'response')
+sub$predicted = ifelse(sub$pred > 0.5, 'Positive','Negative')
+
+k = xtabs(~ data$CDH + sub$predicted)
+head(sub) %>%
+  knitr::kable()
+k %>%
+  knitr::kable()
+```
+```{r}
+k = epitable(c(69,2,538,0))
+sensitivity(k)
+specificity(k)
+```
+
+Sensitivity  = 11%
+
+Specificity = 0%
+
+<center>
+```{r, echo = F, message=FALSE}
+class = model_2$y
+score = model_2$fitted.values
+
+measure = measureit(score = score, class = class, measure = c('ACC','SENS','FSCR'))
+plot(measure$ACC~ measure$Cutoff, type = 'l')
+
+positive = sub$predicted
+roc(data$CAT,model_2$fitted.values,plot = T ,legacy.axes = T, percent = T,xlab = 'False Positive Percentage', ylab = 'True Positive Percantage')
+
+```
+</center>
+
+AUC = 90%
+
+In this graph we can see the sensitivity and specificity trade-off. If the curve comes closer to the diagonal line, the less accurate the test. At 0 False positives, theres around 80% true positive rate, and at 100% False positives, theres around 99% true positive percantage. 
+The model could not predict the True negatives, and having a high alpha error. Overall the model has tendencies to a positive test.
+
+I would keep the same treshold of 0.5 but do a re sampling, since when predicting and testing our model with the data we obtained a really low True positive rate.
+
+
+<center>
+Conclusion
+</center>
+
+There has to by a bigger number of subjects that are positive of Coronary Heart Disease. Clearly in the histogram of Positive CHD, theres not really a normal distribution. Also, the deviance residual distribution is highly skewed, explaining more the specificity of 0 % and the 11 % sensitivity of our predictions of the best model given by the data obtained. 
+
+
+References
+
+1. Fitzgerald, P. A. (2011). "Chapter 11. Adrenal Medulla and Paraganglia". In Gardner, D. G.; Shoback, D. (eds.). Greenspan's Basic & Clinical Endocrinology (9th ed.). New York: McGraw-Hill. Retrieved October 26, 2011.
+
+2. Purves, D.; Augustine, G. J.; Fitzpatrick, D.; Hall, W. C.; LaMantia, A. S.; McNamara, J. O.; White, L. E., eds. (2008). Neuroscience (4th ed.). Sinauer Associates. pp. 137–138. ISBN 978-0-87893-697-7.
+
+3. Zbroch E, Musialowska D, Koc-Zorawska E, Malyszko J. Age influence on renalase and catecholamines concentration in hypertensive patients, including maintained dialysis. Clin Interv Aging. 2016;11:1545-1550. Published 2016 Oct 28. doi:10.2147/CIA.S106109
+
